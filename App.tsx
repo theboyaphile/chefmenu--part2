@@ -165,6 +165,7 @@ export default function App() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>(seedMenuItems);
   const [orderItems, setOrderItems] = useState<OrderLine[]>([]);
   const [draft, setDraft] = useState<DraftState>(baseDraft);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [showCoursePicker, setShowCoursePicker] = useState(false);
@@ -304,8 +305,8 @@ export default function App() {
     setSaveBanner(null);
 
     setTimeout(() => {
-      const nextItem: MenuItem = {
-        id: `dish-${Date.now()}`,
+      const savedItem: MenuItem = {
+        id: editingItemId ?? `dish-${Date.now()}`,
         name: draft.dishName.trim(),
         description: draft.description.trim(),
         course: draft.course as CourseCategory,
@@ -315,15 +316,68 @@ export default function App() {
         posVisible: draft.posVisible,
       };
 
-      setMenuItems((current) => [nextItem, ...current]);
+      setMenuItems((current) => editingItemId
+        ? current.map((item) => item.id === editingItemId ? savedItem : item)
+        : [savedItem, ...current]);
+      setEditingItemId(null);
       setDraft(baseDraft);
       setErrors({});
       setIsSaving(false);
-      setSaveBanner('Saved to Service!');
+      setSaveBanner(editingItemId ? 'Menu item updated!' : 'Saved to Service!');
       setActiveTab('menu');
 
       setTimeout(() => setSaveBanner(null), 2200);
     }, 800);
+  };
+
+  const menuStats = useMemo(() => {
+    const total = menuItems.length;
+    const averagePrice = total === 0
+      ? 0
+      : menuItems.reduce((sum, item) => sum + item.price, 0) / total;
+
+    return {
+      total,
+      averagePrice,
+      starterCount: menuItems.filter((item) => item.course.includes('Starter')).length,
+      mainCount: menuItems.filter((item) => item.course.includes('Main Course')).length,
+      dessertCount: menuItems.filter((item) => item.course.includes('Dessert')).length,
+    };
+  }, [menuItems]);
+
+  const clearSearchAndFilters = () => {
+    setSearchQuery('');
+    setFilter('all');
+    setSearchExpanded(false);
+  };
+
+  const handleStartEdit = (item: MenuItem) => {
+    setEditingItemId(item.id);
+    setDraft({
+      dishName: item.name,
+      description: item.description,
+      course: item.course,
+      price: String(item.price),
+      kitchenStations: item.kitchenStations,
+      dietaryTags: item.dietaryTags,
+      posVisible: item.posVisible,
+    });
+    setErrors({});
+    setActiveTab('add');
+  };
+
+  const handleDelete = (item: MenuItem) => {
+    setMenuItems((current) => current.filter((entry) => entry.id !== item.id));
+    setOrderItems((current) => current.filter((entry) => entry.id !== item.id));
+    setSaveBanner(`${item.name} deleted`);
+    setTimeout(() => setSaveBanner(null), 2200);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingItemId(null);
+    setDraft(baseDraft);
+    setErrors({});
+    setActiveTab('menu');
   };
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => (
@@ -367,9 +421,17 @@ export default function App() {
 
         <View style={styles.cardActionRow}>
           <Text style={styles.menuCountText}>{orderItems.find((entry) => entry.id === item.id)?.quantity ?? 0} in order</Text>
-          <Pressable style={styles.orderButton} onPress={() => handleAddToOrder(item)}>
-            <Text style={styles.orderButtonText}>Add to order</Text>
-          </Pressable>
+          <View style={styles.cardActions}>
+            <Pressable accessibilityLabel={`Edit ${item.name}`} style={styles.editButton} onPress={() => handleStartEdit(item)}>
+              <Text style={styles.editButtonText}>Edit</Text>
+            </Pressable>
+            <Pressable accessibilityLabel={`Delete ${item.name}`} style={styles.deleteButton} onPress={() => handleDelete(item)}>
+              <Text style={styles.deleteButtonText}>Delete</Text>
+            </Pressable>
+            <Pressable style={styles.orderButton} onPress={() => handleAddToOrder(item)}>
+              <Text style={styles.orderButtonText}>Add to order</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </Pressable>
@@ -512,6 +574,29 @@ export default function App() {
         </View>
       </View>
 
+      {searchQuery.length > 0 || filter !== 'all' ? (
+        <Pressable accessibilityLabel="Clear search and filters" style={styles.clearFilterButton} onPress={clearSearchAndFilters}>
+          <Text style={styles.clearFilterText}>Clear search & filters</Text>
+        </Pressable>
+      ) : null}
+
+      <View style={styles.statsCard}>
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{menuStats.total}</Text>
+          <Text style={styles.statLabel}>Total Items</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{formatRand(menuStats.averagePrice)}</Text>
+          <Text style={styles.statLabel}>Average Price</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{menuStats.starterCount}/{menuStats.mainCount}/{menuStats.dessertCount}</Text>
+          <Text style={styles.statLabel}>Starter / Main / Dessert</Text>
+        </View>
+      </View>
+
       <View style={styles.bannerNote}>
         <Text style={styles.bannerNoteText}>Evening Service tasting menu active • Prep complete</Text>
       </View>
@@ -550,8 +635,8 @@ export default function App() {
           <Text style={styles.closeIcon}>×</Text>
         </Pressable>
       </View>
-      <Text style={styles.addTitle}>Add New Menu Item</Text>
-      <Text style={styles.addSubtitle}>Create or update dishes for the active seasonal dinner menu</Text>
+      <Text style={styles.addTitle}>{editingItemId ? 'Edit Menu Item' : 'Add New Menu Item'}</Text>
+      <Text style={styles.addSubtitle}>{editingItemId ? 'Update this dish for the active seasonal dinner menu' : 'Create a dish for the active seasonal dinner menu'}</Text>
 
       <View style={styles.heroCard}>
         <LinearGradient colors={['#ede3d8', '#dfe9e2']} style={styles.heroThumb}>
@@ -679,7 +764,7 @@ export default function App() {
       </View>
 
       <TouchableOpacity style={styles.saveButton} onPress={handleSubmit} disabled={isSaving}>
-        {isSaving ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.saveButtonText}>Save Menu Item</Text>}
+        {isSaving ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.saveButtonText}>{editingItemId ? 'Update Menu Item' : 'Save Menu Item'}</Text>}
       </TouchableOpacity>
     </ScrollView>
   );
@@ -760,13 +845,24 @@ export default function App() {
           </View>
         </View>
 
-        <View style={styles.statusPill}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>Service</Text>
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Add menu item"
+            style={styles.addActionButton}
+            onPress={() => {
+              setEditingItemId(null);
+              setDraft(baseDraft);
+              setErrors({});
+              setActiveTab('add');
+            }}
+          >
+            <Text style={styles.addActionIcon}>+</Text>
+            <Text style={styles.addActionText}>Add item</Text>
+          </Pressable>
         </View>
       </View>
 
-      {activeTab === 'menu' ? renderMenuScreen() : activeTab === 'orders' ? renderOrdersScreen() : activeTab === 'settings' ? renderSettingsScreen() : (
+      {activeTab === 'menu' ? renderMenuScreen() : activeTab === 'orders' ? renderOrdersScreen() : activeTab === 'settings' ? renderSettingsScreen() : activeTab === 'add' ? renderAddScreen() : (
         <View style={styles.placeholderScreen}>
           <Text style={styles.placeholderTitle}>{activeTab === 'inventory' ? 'Inventory' : 'Settings'}</Text>
           <Text style={styles.placeholderCopy}>This service module is ready for the next phase of the operation dashboard.</Text>
@@ -1788,5 +1884,79 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: 52,
     marginBottom: 10,
+  },
+  clearFilterButton: {
+    backgroundColor: '#f9e5d8',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  clearFilterText: {
+    color: '#9a4023',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  statsCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#edf2f8',
+    padding: 16,
+    marginBottom: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    color: '#171c23',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  statLabel: {
+    color: '#6f7480',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#edf2f8',
+    marginHorizontal: 12,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  editButton: {
+    backgroundColor: '#edf1f8',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginRight: 6,
+  },
+  editButtonText: {
+    color: '#436652',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  deleteButton: {
+    backgroundColor: '#fff0f0',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginRight: 6,
+  },
+  deleteButtonText: {
+    color: '#b64141',
+    fontSize: 11,
+    fontWeight: '700',
   },
 });
